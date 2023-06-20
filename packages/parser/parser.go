@@ -31,6 +31,7 @@ type Parser interface {
 	extractURL() Parser
 	extractVersionIdentifier() Parser
 	Parse(data []byte) Parser
+	GetContent() *schema.DatabaseTable
 }
 
 func ParseJSON(data []byte) Parser {

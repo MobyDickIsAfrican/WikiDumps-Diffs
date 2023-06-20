@@ -2,71 +2,82 @@ package main
 
 import (
 	"bufio"
+	database "bug/m/packages/database"
 	parser "bug/m/packages/parser"
 	"log"
 	"os"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/joho/godotenv"
 )
 
-type Data struct {
-	// Define the structure of your JSON data
-	Field1 string `json:"field1"`
-	Field2 int    `json:"field2"`
-	// ...
-}
-
-func worker(ch <-chan [][]byte, wg *sync.WaitGroup) {
-	defer wg.Done()
-	for dataChunk := range ch {
-		parser.ParseJSON(dataChunk[0])
-	}
-}
-
 func main() {
-	// Open the JSON file
-	file, err := os.Open("./packages/parser/testdata/test_data.ndjson")
+	godotenv.Load(".env")
+
+	file, err := os.Open(os.Getenv("FILE_PATH"))
 	if err != nil {
 		log.Fatal("Error opening file:", err)
 	}
+
 	defer file.Close()
 
-	// Create a channel for sending JSON data chunks to workers
-	dataCh := make(chan [][]byte, 6)
+	remaining := make(chan int64, 1)
+	fsInfo, err := file.Stat()
+	if err != nil {
+		log.Fatal(err)
+	}
+	fileSize := float64(fsInfo.Size())
 
-	// Start worker goroutines
-	var wg sync.WaitGroup
-	numWorkers := 5
+	initSize := fileSize
+
+	wg := new(sync.WaitGroup)
+
+	wg.Add(1)
+	go func(r *chan int64) {
+		defer wg.Done()
+		for status := range *r {
+			log.Printf("%d%% remaining", status)
+		}
+	}(&remaining)
+
+	numWorkers := 10
 	wg.Add(numWorkers)
+
+	dataCh := make(chan [][]byte)
+	dtb := database.NewDatabase().Connect().CreateTable()
 	for i := 0; i < numWorkers; i++ {
-		go worker(dataCh, &wg)
+		go func(r *chan [][]byte, wg *sync.WaitGroup, dtb *database.Database) {
+			defer wg.Done()
+			for data := range *r {
+				prs := parser.ParseJSON(data[0])
+				dtb.Insert(prs.GetContent())
+			}
+		}(&dataCh, wg, dtb)
 	}
 
-	// Read the JSON file in chunks and send them to workers
 	scanner := bufio.NewScanner(file)
+	const maxBufferSize = 1024 * 1024
+	scanner.Buffer(make([]byte, maxBufferSize), maxBufferSize)
 	for scanner.Scan() {
-		//dataChunk := scanner.Bytes()
-		//log.Print(scanner.Text())
-		//var chk [][]byte
-		//chk = append(chk, dataChunk)
-		// Send the data chunk to the worker goroutines for processing
-		//dataCh <- chk
+		log.Print(time.Now())
 		var chk [][]byte
 
 		line := scanner.Text()
-
-		// Escape the URL characters in the line.
 		line = strings.ReplaceAll(line, "&", "&amp;")
 		line = strings.ReplaceAll(line, "<", "&lt;")
 		line = strings.ReplaceAll(line, ">", "&gt;")
-		//log.Print(line)
 		chk = append(chk, []byte(line))
+
+		remaining <- int64((fileSize / initSize) * 100)
 		dataCh <- chk
+		fileSize -= float64(len(line))
 	}
 
-	// Close the channel to indicate no more data will be sent
-	close(dataCh)
+	defer close(remaining)
+	defer close(dataCh)
+	log.Print("Closing remaining and dataCh")
 
-	// Wait for all workers to complete
 	wg.Wait()
 }

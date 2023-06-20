@@ -23,14 +23,12 @@ func (p *JSONParser) extractName() Parser {
 	ifc := p.data.GetParsedInterface()
 	//log.Print(ifc)
 	name := (ifc)["name"].(string)
-	log.Print(name)
 	p.data.GetParsedContent().Name = name
 	return p
 }
 
 func (p *JSONParser) extractContentHash() Parser {
 	ifc := p.data.GetParsedInterface()
-	log.Printf("interface %T", (ifc)["article_body"])
 	contentHash := (ifc)["article_body"].(map[string]interface{})["html"].(string)
 	p.data.GetParsedContent().ContentHash = p.hasher(contentHash)
 	return p
@@ -45,7 +43,7 @@ func (p *JSONParser) extractDateModified() Parser {
 
 func (p *JSONParser) extractIdentifier() Parser {
 	ifc := p.data.GetParsedInterface()
-	identifier := (ifc)["identifier"].(json.Number)
+	identifier := (ifc)["identifier"].(float64)
 	p.data.GetParsedContent().Identifier = identifier
 	return p
 }
@@ -60,7 +58,7 @@ func (p *JSONParser) extractURL() Parser {
 func (p *JSONParser) extractVersionIdentifier() Parser {
 	ifc := p.data.GetParsedInterface()
 	version := (ifc)["version"].(map[string]interface{})
-	identifier := version["identifier"].(json.Number)
+	identifier := version["identifier"].(float64)
 	p.data.GetParsedContent().Identifier = identifier
 	return p
 }
@@ -72,4 +70,8 @@ func (p *JSONParser) Parse(data []byte) Parser {
 	}
 	p.extractName().extractContentHash().extractDateModified().extractIdentifier().extractURL().extractVersionIdentifier()
 	return p
+}
+
+func (p *JSONParser) GetContent() *schema.DatabaseTable {
+	return p.data.GetParsedContent()
 }
