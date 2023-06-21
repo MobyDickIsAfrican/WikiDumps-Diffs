@@ -3,9 +3,8 @@ package parser
 
 import (
 	"bug/m/submodules/hash"
+	"bug/m/submodules/marshaller"
 	"bug/m/submodules/schema"
-	"encoding/json"
-	"encoding/xml"
 )
 
 type ParserData struct {
@@ -37,13 +36,13 @@ type Parser interface {
 }
 
 func ParseJSON(data []byte) Parser {
-	var jsn Parser = NewParser(hash.Hash, json.Unmarshal)
+	var jsn Parser = NewParser(hash.Hash, marshaller.JSONMarshaller)
 	prs := jsn.Parse(data)
 	return prs
 }
 
 func ParseXML(data []byte) Parser {
-	var jsn Parser = NewParser(hash.Hash, xml.Unmarshal)
+	var jsn Parser = NewParser(hash.Hash, marshaller.JSONMarshaller)
 	prs := jsn.Parse(data)
 	return prs
 }
