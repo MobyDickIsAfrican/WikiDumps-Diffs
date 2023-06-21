@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -107,6 +108,33 @@ type Version struct {
 	Identifier float64 `json:"identifier"`
 }
 
+type Stack struct {
+	items []interface{}
+}
+
+func (s *Stack) Push(item interface{}) {
+	s.items = append(s.items, item)
+}
+
+func (s *Stack) Pop() interface{} {
+	if len(s.items) == 0 {
+		return nil
+	}
+
+	item := s.items[len(s.items)-1]
+	s.items = s.items[:len(s.items)-1]
+
+	return item
+}
+
+func (s *Stack) Peek() interface{} {
+	if len(s.items) == 0 {
+		return nil
+	}
+
+	return s.items[len(s.items)-1]
+}
+
 func MoveXMLToDatabase(file *os.File, remaining chan int64, dataCh chan [][]byte) {
 	fsInfo, err := file.Stat()
 	if err != nil {
@@ -118,14 +146,14 @@ func MoveXMLToDatabase(file *os.File, remaining chan int64, dataCh chan [][]byte
 	var reachedEnd bool = false
 	XLMData := XMLMarshal{ArticleBody: &ArticleBody{}, Version: &Version{}}
 	decoder := xml.NewDecoder(file)
-	// Iterate over the XML tags.
+
+	stk := &Stack{}
 	for {
 		// Read the next token.
 		t, err := decoder.Token()
 		if reachedEnd {
 			reachedEnd = false
 			jsonData, err := json.Marshal(XLMData)
-			log.Printf("JSON: %s", jsonData)
 			if err != nil {
 				log.Println(err)
 			}
@@ -135,8 +163,10 @@ func MoveXMLToDatabase(file *os.File, remaining chan int64, dataCh chan [][]byte
 			dataCh <- chk
 
 			remaining <- int64((fileSize / initSize) * 100)
-			fileSize -= float64(len(jsonData))
 		}
+
+		fileSize -= float64(5)
+
 		if err == io.EOF {
 			break
 		}
@@ -146,38 +176,53 @@ func MoveXMLToDatabase(file *os.File, remaining chan int64, dataCh chan [][]byte
 			continue
 		}
 
-		// Check if the token is a StartElement.
+		// set parent.
 		if se, ok := t.(xml.StartElement); ok {
-			// Get the name of the tag.
 			name := se.Name.Local
-			value := se.Attr[0].Value
+			stk.Push(name)
+		}
 
-			if name == "title" {
-				XLMData.Name = value
-			}
-			if name == "id" {
-				XLMData.Identifier = 1
-				XLMData.Version.Identifier = 1
-			}
-			/*
-				if name == "version_identifier" {
-					XLMData.VersionIdentifier = 1
-				}*/
+		// pop parent
+		if _, ok := t.(xml.EndElement); ok {
+			stk.Pop()
+		}
+		if se, ok := t.(xml.CharData); ok {
+			currentParent := stk.Pop().(string)
 
-			if name == "url" {
-				XLMData.URL = name
+			if currentParent == "title" {
+				XLMData.Name = string(se)
 			}
 
-			if name == "timestamp" {
-				XLMData.DateModified = name
+			if currentParent == "id" {
+				oldParent := stk.Peek().(string)
+				if oldParent == "page" {
+					idf, err := strconv.Atoi(string(se))
+					if err != nil {
+						log.Fatal(err)
+					}
+					XLMData.Identifier = float64(idf)
+				} else if oldParent == "revision" {
+					idf, err := strconv.Atoi(string(se))
+					if err != nil {
+						log.Fatal(err)
+					}
+					XLMData.Version.Identifier = float64(idf)
+				}
 			}
 
-			if name == "text" {
-				XLMData.ArticleBody.Html = name
+			if currentParent == "url" {
+				XLMData.URL = string(se)
+			}
+
+			if currentParent == "timestamp" {
+				XLMData.DateModified = string(se)
+			}
+
+			if currentParent == "text" {
+				XLMData.ArticleBody.Html = "dummyhash"
 				reachedEnd = true
 			}
-
-			continue
+			stk.Push(currentParent)
 		}
 		continue
 	}

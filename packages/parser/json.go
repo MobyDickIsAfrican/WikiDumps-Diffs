@@ -58,7 +58,7 @@ func (p *DataParser) extractVersionIdentifier() Parser {
 	ifc := p.data.GetParsedInterface()
 	version := (ifc)["version"].(map[string]interface{})
 	identifier := version["identifier"].(float64)
-	p.data.GetParsedContent().Identifier = identifier
+	p.data.GetParsedContent().VersionIdentifier = identifier
 	return p
 }
 
