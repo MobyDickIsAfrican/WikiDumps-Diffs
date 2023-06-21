@@ -6,6 +6,7 @@ import (
 	parser "bug/m/packages/parser"
 	"encoding/json"
 	"encoding/xml"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -13,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"path/filepath"
 
 	"github.com/joho/godotenv"
 )
@@ -54,11 +57,43 @@ func main() {
 		}(&dataCh, wg, dtb)
 	}
 
-	MoveXMLToDatabase(file, remaining, dataCh)
+	//MoveXMLToDatabase(file, remaining, dataCh)
+	useFolder(os.Getenv("FOLDER_PATH"), file, remaining, dataCh)
 
 	wg.Wait()
 }
 
+func useFolder(folder string, file *os.File, remaining chan int64, dataCh chan [][]byte) {
+	// iterate through each file in folder and call MoveJSONToDatabase
+	folderPath := folder
+
+	err := filepath.Walk(folderPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			fmt.Printf("Error accessing path %s: %v\n", path, err)
+			return nil
+		}
+
+		if !info.IsDir() {
+			fmt.Println(path)
+			file, err := os.Open(path)
+			if err != nil {
+				log.Fatal("Error opening file:", err)
+			}
+
+			MoveJSONToDatabase(file, remaining, dataCh)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		fmt.Printf("Error walking through folder: %v\n", err)
+	}
+
+	defer close(remaining)
+	defer close(dataCh)
+	log.Print("Closing remaining and dataCh")
+}
 func MoveJSONToDatabase(file *os.File, remaining chan int64, dataCh chan [][]byte) {
 	fsInfo, err := file.Stat()
 	if err != nil {
@@ -76,7 +111,6 @@ func MoveJSONToDatabase(file *os.File, remaining chan int64, dataCh chan [][]byt
 		var chk [][]byte
 
 		line := scanner.Text()
-		log.Print("Line: ", line)
 		line = strings.ReplaceAll(line, "&", "&amp;")
 		line = strings.ReplaceAll(line, "<", "&lt;")
 		line = strings.ReplaceAll(line, ">", "&gt;")
@@ -86,10 +120,6 @@ func MoveJSONToDatabase(file *os.File, remaining chan int64, dataCh chan [][]byt
 		dataCh <- chk
 		fileSize -= float64(len(line))
 	}
-
-	defer close(remaining)
-	defer close(dataCh)
-	log.Print("Closing remaining and dataCh")
 }
 
 type XMLMarshal struct {
