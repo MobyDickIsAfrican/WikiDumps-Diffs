@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"path/filepath"
 
@@ -57,14 +56,13 @@ func main() {
 		}(&dataCh, wg, dtb)
 	}
 
-	//MoveXMLToDatabase(file, remaining, dataCh)
-	useFolder(os.Getenv("FOLDER_PATH"), file, remaining, dataCh)
+	MoveXMLToDatabase(file, remaining, dataCh)
+	//useFolder(os.Getenv("FOLDER_PATH"), file, remaining, dataCh)
 
 	wg.Wait()
 }
 
 func useFolder(folder string, file *os.File, remaining chan int64, dataCh chan [][]byte) {
-	// iterate through each file in folder and call MoveJSONToDatabase
 	folderPath := folder
 
 	err := filepath.Walk(folderPath, func(path string, info os.FileInfo, err error) error {
@@ -107,7 +105,6 @@ func MoveJSONToDatabase(file *os.File, remaining chan int64, dataCh chan [][]byt
 	const maxBufferSize = 1024 * 1024
 	scanner.Buffer(make([]byte, maxBufferSize), maxBufferSize)
 	for scanner.Scan() {
-		log.Print(time.Now())
 		var chk [][]byte
 
 		line := scanner.Text()
@@ -174,7 +171,7 @@ func MoveXMLToDatabase(file *os.File, remaining chan int64, dataCh chan [][]byte
 	initSize := fileSize
 
 	var reachedEnd bool = false
-	XLMData := XMLMarshal{ArticleBody: &ArticleBody{}, Version: &Version{}}
+	XLMData := &XMLMarshal{ArticleBody: &ArticleBody{}, Version: &Version{}}
 	decoder := xml.NewDecoder(file)
 
 	stk := &Stack{}
@@ -183,6 +180,10 @@ func MoveXMLToDatabase(file *os.File, remaining chan int64, dataCh chan [][]byte
 		t, err := decoder.Token()
 		if reachedEnd {
 			reachedEnd = false
+
+			if XLMData.Name == "" && XLMData.Identifier == 0 && XLMData.URL == "" && XLMData.DateModified == "" && XLMData.ArticleBody.Html == "" && XLMData.Version.Identifier == 0 {
+				continue
+			}
 			jsonData, err := json.Marshal(XLMData)
 			if err != nil {
 				log.Println(err)
@@ -219,6 +220,23 @@ func MoveXMLToDatabase(file *os.File, remaining chan int64, dataCh chan [][]byte
 		if se, ok := t.(xml.CharData); ok {
 			currentParent := stk.Pop().(string)
 
+			// skip ns
+
+			if currentParent == "ns" {
+				//log.Print("Skipping ns: ", string(se))
+				nsp, err := strconv.Atoi(string(se))
+
+				if err != nil {
+					log.Fatal(err)
+				}
+
+				if nsp != 0 {
+					XLMData = &XMLMarshal{ArticleBody: &ArticleBody{}, Version: &Version{}}
+					reachedEnd = true
+					continue
+				}
+			}
+
 			if currentParent == "title" {
 				XLMData.Name = string(se)
 			}
@@ -249,9 +267,11 @@ func MoveXMLToDatabase(file *os.File, remaining chan int64, dataCh chan [][]byte
 			}
 
 			if currentParent == "text" {
+				//log.Print("Text: ", string(se))
 				XLMData.ArticleBody.Html = "dummyhash"
 				reachedEnd = true
 			}
+
 			stk.Push(currentParent)
 		}
 		continue
